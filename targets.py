@@ -162,11 +162,18 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
 
             # Calculate the number of nucleotide differences and the diff string
             num_nt_diff = sum(1 for a, b in zip(q_seq, t_seq) if a != b)
+            
+            # The diff string is a comma-separated list of nucleotide differences
+            # Each nucleotide difference is in the format of "t_nt"+"q_pos" +"q_nt"
             diff = ",".join(
                 f"{a}{i + 1}{b}"
-                for i, (a, b) in enumerate(zip(q_seq, t_seq))
+                for i, (a, b) in enumerate(zip(t_seq, q_seq))
                 if a != b
             )
+
+            # if no diff, then diff is a dash
+            if diff == "":
+                diff = "-"
 
             # Calculate the coordinate string
             # The coordinate string is the start and end position of the aligned region, 1-based.
