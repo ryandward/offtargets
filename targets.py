@@ -5,8 +5,8 @@ import subprocess
 from Bio import SeqIO
 import gzip
 import pysam
-from rich.spinner import Spinner
 from rich.console import Console
+from Bio.SeqFeature import CompoundLocation
 
 console = Console()
 
@@ -19,22 +19,46 @@ def create_working_directory(dir_name="working_directory"):
     os.makedirs(dir_name, exist_ok=True)
     return dir_name
 
-# Convert genbank to fasta
 def convert_genbank_to_fasta(genbank_file, fasta_file):
-    with open_file(genbank_file, "rt") as input_handle, open(fasta_file, "w") as output_handle:
-        for record in SeqIO.parse(input_handle, "genbank"):
-            SeqIO.write(record, output_handle, "fasta")
+    # handle errors, if the file does not exist using rich.console.Console
+    if not os.path.exists(genbank_file):
+        console.print(f"[red]File \"{genbank_file}\" does not exist![/red]")
+        sys.exit(1)
+
+    # if it is gzipped, open with gzip.open otherwise open with open
+    if genbank_file.endswith(".gz"):
+        with gzip.open(genbank_file, "rt") as input_handle, open(fasta_file, "w") as output_handle:
+            for record in SeqIO.parse(input_handle, "genbank"):
+                SeqIO.write(record, output_handle, "fasta")
+    else:
+        with open(genbank_file, "rt") as input_handle, open(fasta_file, "w") as output_handle:
+            for record in SeqIO.parse(input_handle, "genbank"):
+                SeqIO.write(record, output_handle, "fasta")
 
 # Convert fasta to fake fastq
 def convert_fasta_to_fake_fastq(fasta_file, fastq_file):
-    with open(fastq_file, "w") as output_handle:
-        for record in SeqIO.parse(fasta_file, "fasta"):
-            record.letter_annotations["phred_quality"] = [40] * len(record)
-            SeqIO.write(record, output_handle, "fastq")
+    # handle errors, if the file does not exist using rich.console.Console
+    if not os.path.exists(fasta_file):
+        console.print(f"[red]File \"{fasta_file}\" does not exist![/red]")
+        sys.exit(1)
+
+    # if it is gzipped, open with gzip.open otherwise open with open
+    if fasta_file.endswith(".gz"):
+        with gzip.open(fasta_file, "rt") as input_handle, open(fastq_file, "w") as output_handle:
+            for record in SeqIO.parse(input_handle, "fasta"):
+                record.letter_annotations["phred_quality"] = [40] * len(record)
+                SeqIO.write(record, output_handle, "fastq")
+    else:
+        with open(fasta_file, "rt") as input_handle, open(fastq_file, "w") as output_handle:
+            for record in SeqIO.parse(input_handle, "fasta"):
+                record.letter_annotations["phred_quality"] = [40] * len(record)
+                SeqIO.write(record, output_handle, "fastq")
 
 # This function runs Bowtie, which is a tool for aligning short DNA sequences
 def run_bowtie(sgrna_fastq, genome_fasta, output_file):
+
     index_prefix = "genome_index"
+
     with open(os.devnull, "w") as devnull:
         subprocess.run(
             ["bowtie-build", genome_fasta, index_prefix],
@@ -46,21 +70,36 @@ def run_bowtie(sgrna_fastq, genome_fasta, output_file):
             stdout=devnull,
             stderr=devnull,
         )
+        # Remove the index files, which names start with the index_prefix and end with ebwt
+        for file in os.listdir("."):
+            if file.startswith(index_prefix) and file.endswith(".ebwt"):
+                os.remove(file)
 
-# Create a locus map
 def create_locus_map(genbank_file):
     locus_map = {}
     with open_file(genbank_file, "rt") as input_handle:
         for record in SeqIO.parse(input_handle, "genbank"):
             for feature in record.features:
                 if feature.type == "gene":
-                    for position in range(int(feature.location.start), int(feature.location.end) + 1):
-                        locus_map[(record.id, position)] = (
-                            feature.qualifiers.get("locus_tag", [None])[0],
-                            int(feature.location.start),
-                            int(feature.location.end),
-                            feature.strand,
-                        )
+                    # Check if the feature location is a compound location
+                    if isinstance(feature.location, CompoundLocation):
+                        # Iterate through all parts of the compound location
+                        for part_location in feature.location.parts:
+                            for position in range(int(part_location.start), int(part_location.end) + 1):
+                                locus_map[(record.id, position)] = (
+                                    feature.qualifiers.get("locus_tag", [None])[0],
+                                    int(part_location.start),
+                                    int(part_location.end),
+                                    feature.strand,
+                                )
+                    else:
+                        for position in range(int(feature.location.start), int(feature.location.end) + 1):
+                            locus_map[(record.id, position)] = (
+                                feature.qualifiers.get("locus_tag", [None])[0],
+                                int(feature.location.start),
+                                int(feature.location.end),
+                                feature.strand,
+                            )
     return locus_map
 
 # Reconstruct the target sequence using the cigar string
@@ -102,10 +141,17 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
             t_start = read.reference_start
             t_end = read.reference_end
             t_seq = reconstruct_t_seq(read)
-            q_dir = "F" if             not read.is_reverse else "R"
-            t_locus_tag, feature_start, feature_end, feature_strand = locus_map.get(
-                (t_chromosome, t_start), (None, None, None, None)
-            )
+
+            q_dir = "F" if not read.is_reverse else "R"
+
+            # Find the corresponding feature by iterating through the entire aligned region
+            t_locus_tag, feature_start, feature_end, feature_strand = None, None, None, None
+            for position in range(t_start, t_end + 1):
+                t_locus_tag, feature_start, feature_end, feature_strand = locus_map.get(
+                    (t_chromosome, position), (None, None, None, None)
+                )
+                if t_locus_tag is not None:
+                    break
 
             t_dir = "F" if feature_strand == 1 else "R" if feature_strand == -1 else None
 
@@ -122,14 +168,16 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
                 if a != b
             )
 
-            coord = f"{t_start}-{t_start + q_len - 1}"
+            # Calculate the coordinate string
+            # The coordinate string is the start and end position of the aligned region, 1-based.
+            coord = f"{t_start + 1}-{t_end + 1}"
 
-            # Calculate the offset and adjust for 1-based position
+            # Calculate the offset and adjust 
             if feature_start is not None:
                 if t_dir == "F":
-                    offset = t_start - feature_start + 1
+                    offset = t_start - feature_start + 1  # Add 1 to fix the off-by-1 error
                 elif t_dir == "R":
-                    offset = feature_end - (t_start + q_len + 1)
+                    offset = feature_end - t_end - 1  # Subtract 1 to fix the off-by-2 error
             else:
                 offset = None
 
@@ -148,8 +196,12 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
                 str(t_dir) if t_dir is not None else "",
             ]
             tsv_out.write("\t".join(row) + "\n")
-
+    
+    # Close the sam file
     samfile.close()
+
+    #then delete the sam file
+    os.remove(sam_file)
 
 # Run the entire pipeline
 def main(sgrna_file, genome_file):
@@ -189,13 +241,13 @@ def main(sgrna_file, genome_file):
     with console.status("[bold green][6/6] Parsing SAM output..."):
         parse_sam_output(output_file, locus_map, output_tsv)
 
-    console.print(f"[bold green]Process complete! Results saved in the output file: {output_tsv}")
-
+    console.print(f"[bold green]Process complete! Results saved in the output file: [white]{output_tsv}[bold green]")
 
 # Entry point of the program
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python bowtie_wrapper.py <sgrna_fasta_file> <genome_gb_file>")
+        # print name of program using sys.argv[0] using f notation
+        print(f"Usage: python {sys.argv[0]} <sgrna_fasta_file> <genome_gb_file>")
         sys.exit(1)
 
     sgrna_file = sys.argv[1]
