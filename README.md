@@ -5,7 +5,7 @@ Find CRISPRi offtargets from a .txt file and GenBank files (optionally zipped)
 
 # Quickstart
 
-`python targets.py ab_key.fasta GCF_009759685.1.gb`
+`python targets.py ab_key.fasta GCF_009759685.1.gb 1`
 
 ```python
 
