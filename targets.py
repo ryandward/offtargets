@@ -55,7 +55,7 @@ def convert_fasta_to_fake_fastq(fasta_file, fastq_file):
                 SeqIO.write(record, output_handle, "fastq")
 
 # This function runs Bowtie, which is a tool for aligning short DNA sequences
-def run_bowtie(sgrna_fastq, genome_fasta, output_file):
+def run_bowtie(sgrna_fastq, genome_fasta, output_file, num_mismatches):
 
     index_prefix = "genome_index"
 
@@ -66,10 +66,11 @@ def run_bowtie(sgrna_fastq, genome_fasta, output_file):
             stderr=devnull,
         )
         subprocess.run(
-            ["bowtie", "-v", "1", "-S", index_prefix, sgrna_fastq, output_file],
+            ["bowtie", "-v", str(num_mismatches), "-S", index_prefix, sgrna_fastq, output_file],
             stdout=devnull,
             stderr=devnull,
         )
+
         # Remove the index files, which names start with the index_prefix and end with ebwt
         for file in os.listdir("."):
             if file.startswith(index_prefix) and file.endswith(".ebwt"):
@@ -211,7 +212,7 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
     os.remove(sam_file)
 
 # Run the entire pipeline
-def main(sgrna_file, genome_file):
+def main(sgrna_file, genome_file, num_mismatches):
     working_dir = create_working_directory()
     genome_fasta = os.path.join(
         working_dir, os.path.splitext(os.path.basename(genome_file))[0] + ".fasta"
@@ -234,9 +235,9 @@ def main(sgrna_file, genome_file):
         convert_fasta_to_fake_fastq(sgrna_file, sgrna_fastq)
 
     with console.status("[bold green][3/6] Running Bowtie..."):
-        run_bowtie(sgrna_fastq, genome_fasta, output_file)
+        run_bowtie(sgrna_fastq, genome_fasta, output_file, num_mismatches)
 
-    with console.status("[bold green][4/6] Preparing output..."):   
+    with console.status("[bold green][4/6] Preparing output..."):
         output_tsv = os.path.join(
             output_folder,
             f"{os.path.splitext(os.path.basename(sgrna_file))[0]}_{os.path.splitext(os.path.basename(genome_file))[0]}.tsv",
@@ -245,18 +246,23 @@ def main(sgrna_file, genome_file):
     with console.status("[bold green][5/6] Generating map of genome..."):
         locus_map = create_locus_map(genome_file)
 
-    with console.status("[bold green][6/6] Parsing SAM output..."):
-        parse_sam_output(output_file, locus_map, output_tsv)
+    try:
+        with console.status("[bold green][6/6] Parsing SAM output..."):
+            parse_sam_output(output_file, locus_map, output_tsv)
+    except FileNotFoundError:
+        console.print(f"[red]Error: Could not open the SAM file '{output_file}'. This may be due to no alignments meeting the specified mismatch criteria. Please try using a lower number of mismatches.[/red]")
+        sys.exit(1)
 
     console.print(f"[bold green]Process complete! Results saved in the output file: [white]{output_tsv}[bold green]")
 
+
 # Entry point of the program
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        # print name of program using sys.argv[0] using f notation
-        print(f"Usage: python {sys.argv[0]} <sgrna_fasta_file> <genome_gb_file>")
+    if len(sys.argv) != 4:
+        print(f"Usage: python {sys.argv[0]} <sgrna_fasta_file> <genome_gb_file> <num_mismatches>")
         sys.exit(1)
 
     sgrna_file = sys.argv[1]
     genome_file = sys.argv[2]
-    main(sgrna_file, genome_file)
+    num_mismatches = int(sys.argv[3])
+    main(sgrna_file, genome_file, num_mismatches)
