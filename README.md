@@ -5,6 +5,8 @@ Find CRISPRi offtargets from a .fasta file and GenBank files (optionally zipped)
 
 # Quickstart
 
+`python <targets.py> <queries.fasta> <target_organism.gb{.gz}> <number of mismatches allowed>`
+
 `python targets.py ab_key.fasta GCF_009759685.1.gb 1`
 
 ```python
