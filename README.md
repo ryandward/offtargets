@@ -1,5 +1,5 @@
 # offtargets
-Find CRISPRi offtargets from a .txt file and GenBank files (optionally zipped)
+Find CRISPRi offtargets from a .fasta file and GenBank files (optionally zipped)
 
 
 
