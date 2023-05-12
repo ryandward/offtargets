@@ -66,11 +66,11 @@ def run_bowtie(sgrna_fastq, genome_fasta, output_file, num_mismatches):
             stderr=devnull,
         )
         subprocess.run(
-            ["bowtie", "-v", str(num_mismatches), "-S", index_prefix, sgrna_fastq, output_file],
+            ["bowtie", "-a", "-v", str(num_mismatches), "-S", index_prefix, sgrna_fastq, output_file],
             stdout=devnull,
             stderr=devnull,
         )
-
+        
         # Remove the index files, which names start with the index_prefix and end with ebwt
         for file in os.listdir("."):
             if file.startswith(index_prefix) and file.endswith(".ebwt"):
@@ -209,7 +209,7 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
     samfile.close()
 
     #then delete the sam file
-    os.remove(sam_file)
+    # os.remove(sam_file)
 
 # Run the entire pipeline
 def main(sgrna_file, genome_file, num_mismatches):
