@@ -133,15 +133,21 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
         for read in samfile.fetch():
             if read.is_unmapped:
                 continue
-
+            
             # Extract read information
             q_name = read.query_name
             q_seq = read.query_sequence
+            if q_seq is None:
+                continue  # Skip this iteration or handle it in a way that suits your needs
             q_len = read.query_length
             t_chromosome = read.reference_name
             t_start = read.reference_start
             t_end = read.reference_end
+            if t_end is None:
+                continue  # Skip this iteration or handle it in a way that suits your needs
             t_seq = reconstruct_t_seq(read)
+            if t_seq is None:
+                continue  # Skip this iteration or handle it in a way that suits your needs
 
             q_dir = "F" if not read.is_reverse else "R"
 
@@ -181,13 +187,12 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
             coord = f"{t_start + 1}-{t_end + 1}"
 
             # Calculate the offset and adjust 
-            if feature_start is not None:
+            offset = None
+            if feature_start is not None and feature_end is not None and t_dir is not None:
                 if t_dir == "F":
                     offset = t_start - feature_start + 1  # Add 1 to fix the off-by-1 error
                 elif t_dir == "R":
                     offset = feature_end - t_end - 1  # Subtract 1 to fix the off-by-2 error
-            else:
-                offset = None
 
             row = [
                 q_name,
@@ -201,15 +206,15 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
                 coord,
                 str(offset),
                 q_dir,
-                str(t_dir) if t_dir is not None else "",
+                str(t_dir)
             ]
             tsv_out.write("\t".join(row) + "\n")
     
     # Close the sam file
     samfile.close()
 
-    #then delete the sam file
-    # os.remove(sam_file)
+    # Then delete the sam file
+    os.remove(sam_file)
 
 # Run the entire pipeline
 def main(sgrna_file, genome_file, num_mismatches):
