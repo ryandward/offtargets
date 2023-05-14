@@ -128,6 +128,7 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
             "q_dir",
             "t_dir",
         ]
+        
         tsv_out.write("\t".join(header) + "\n")
 
         for read in samfile.fetch():
@@ -184,16 +185,18 @@ def parse_sam_output(sam_file, locus_map, output_tsv):
 
             # Calculate the coordinate string
             # The coordinate string is the start and end position of the aligned region, 1-based.
-            coord = f"{t_start + 1}-{t_end + 1}"
-
+            # coord = f"{t_start + 1}-{t_end + 1}" # this matches with John's style
+            coord = f"{t_start}-{t_end}" # this matches with bedtools style
+ 
             # Calculate the offset and adjust 
             offset = None
             if feature_start is not None and feature_end is not None and t_dir is not None:
                 if t_dir == "F":
-                    offset = t_start - feature_start + 1  # Add 1 to fix the off-by-1 error
+                    # offset = t_start - feature_start + 1  # Add 1 to fix the off-by-1 error
+                    offset = t_start - feature_start
                 elif t_dir == "R":
-                    offset = feature_end - t_end - 1  # Subtract 1 to fix the off-by-2 error
-
+                    # offset = feature_end - t_end - 1  # Subtract 1 to fix the off-by-2 error
+                    offset = feature_end - t_end
             row = [
                 q_name,
                 q_seq,
@@ -250,6 +253,8 @@ def main(sgrna_file, genome_file, num_mismatches):
 
     with console.status("[bold green][5/6] Generating map of genome..."):
         locus_map = create_locus_map(genome_file)
+        # write locus map to file for debugging, locus_map.tsv
+
 
     try:
         with console.status("[bold green][6/6] Parsing SAM output..."):
